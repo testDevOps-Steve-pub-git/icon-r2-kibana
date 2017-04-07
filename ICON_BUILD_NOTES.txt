@@ -1,0 +1,87 @@
+Build Notes for Bluemix (BMX)
+-----------------------------
+Date: March 7, 2017
+
+Version
+-------
+Kibana version 4.6.5 was chosen to match Bluemix "Compose for Elasticsearch" which uses
+Elasticsearch version 2.4.2
+Use curl -XGET <bmx-elasticsearch-url> to see the version information.
+
+Node Modules
+------------
+The package.son file was modified:
+1) The list of modules from the Kibana distribution (https://github.com/elastic/kibana/blob/4.6/package.json)
+   were added to dependencies and devDependencies. Default comes with pre-build node modules, and not listed in package.json.
+2) The start script was added "scripts": { "start": "node src/cli" } needed for Bluemix deployment.
+
+Remove all the node_modules, because there is a problem when deploying to BMX due to unmet dependencies of the pre-built node modules.
+
+Run "npm install" to populate the latest node_modules.
+
+Bluemix Adaptation
+------------------
+Edit file package.json to change start script to use src/cli directly, from:
+  < "start": "./bin/kibana --dev",
+to:
+  > "start": "node src/cli",
+
+Add the dependency (keep alphabetical order):
+    "cfenv": "1.0.4",
+
+Edit file config/kibana.yml to remove default settings. Comment out all settings except for the following:
+  kibana.index: ".kibana"
+  kibana.defaultAppId: "discover"
+  elasticsearch.requestTimeout: 30000
+  elasticsearch.shardTimeout: 30000
+
+Edit file src/server/config/schema.js to read the port number from the Bluemix environment:
+  < port: Joi.number().default(5601),
+  > port: Joi.number().default(parseInt(process.env.PORT, 10) || 5601),
+
+Edit src/plugins/elasticsearch/index.js, add the following code snippet:
+  const bluemix = require('./lib/bluemix');
+
+  // Get credentials from Bluemix environment
+  let elasticsearchUri = bluemix('icon-elasticsearch');
+
+  < url: string().uri({ scheme: ['http', 'https'] }).default('http://localhost:9200'),
+  > url: string().uri({ scheme: ['http', 'https'] }).default(elasticsearchUri || 'http://localhost:9200'),
+
+Add the file src/plugins/elasticsearch/lib/bluemix.js containing this code:
+  'use strict'
+  const cfenv = require('cfenv')
+  module.exports = (serviceName) => {
+    try {
+      let appEnv = cfenv.getAppEnv()
+      let serviceDetails = appEnv.getService(serviceName)
+
+      return serviceDetails ? serviceDetails['credentials']['uri'] : undefined
+    } catch (err) {
+      console.log(`Bluemix: ${err}`)
+    }
+  }
+
+
+Bluemix Deployment
+------------------
+The file .cfignore was added containing:
+.git
+node_modules
+
+The file manifest.yml was added containing:
+---
+applications:
+- name: icon-kibana
+  host: icon-kibana
+  memory: 512M
+
+Login to BMX:
+$ cf login -u stuart.thompson@ontario.ca -o "ICON R2" -s dev
+
+Push the application to BMX:
+$ cd icon-kibana
+$ cf push -p .
+
+$ cf bind-service icon-kibana icon-elasticsearch
+$ cf restage icon-kibana

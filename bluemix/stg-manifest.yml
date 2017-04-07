@@ -1,0 +1,2 @@
+domain: stg-backend.iconr2.marc-hi.ca
+inherit: base-manifest.yml
